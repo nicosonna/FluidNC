@@ -93,6 +93,14 @@ void sd_unmount() {
 
 // Deinitialize the SD card slot
 // cppcheck-suppress unusedFunction
+bool sd_set_clock_khz(uint32_t khz) {
+    return false;
+}
+
+bool sd_alive() {
+    return sd_mounted;
+}
+
 void sd_deinit_slot() {
     if (sd_mounted) {
         sd_unmount();

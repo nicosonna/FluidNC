@@ -36,6 +36,12 @@ bool sd_init_slot(uint32_t freq_hz, pinnum_t cs_pin, pinnum_t cd_pin = -1, pinnu
 }
 void sd_deinit_slot() {}
 void sd_unmount() {}
+bool sd_set_clock_khz(uint32_t khz) {
+    return false;
+}
+bool sd_alive() {
+    return true;
+}
 
 std::error_code sd_mount(uint32_t max_files) {
     std::cout << "Mounting sd from " << SD.prefix << std::endl;

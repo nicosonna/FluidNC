@@ -395,12 +395,25 @@ void WebDAV::handleRequest(AsyncWebServerRequest* request) {
     log_verbose("fpath with method " << request->methodToString() << " on " << path);
 
     FluidPath fpath { path.string(), _volume, ec };
+    // Falcon2: the throwing overloads of is_regular_file() / is_directory()
+    // must not be used here.  This runs in the async web server task, where
+    // nothing catches the exception: a card that fails to answer (busy with
+    // another transfer, or stuck) aborted the firmware instead of returning
+    // an HTTP error.
     if (ec) {
         resource = DavResource::NONE;
-    } else if (stdfs::is_regular_file(fpath)) {
-        resource = DavResource::FILE;
-    } else if (stdfs::is_directory(fpath)) {
-        resource = DavResource::DIR;
+    } else {
+        auto st = stdfs::status(fpath, ec);
+        if (st.type() == stdfs::file_type::not_found) {
+            ec.clear();  // a missing file is a normal answer (PUT and MKCOL create it)
+        } else if (ec) {
+            log_info("WebDAV: cannot access " << path.string() << ": " << ec.message());
+            return request->send(503);  // Service unavailable: the volume did not answer
+        } else if (stdfs::is_regular_file(st)) {
+            resource = DavResource::FILE;
+        } else if (stdfs::is_directory(st)) {
+            resource = DavResource::DIR;
+        }
     }
 
     if (request->method() == HTTP_MKCOL) {
@@ -481,7 +494,8 @@ void WebDAV::handleBody(AsyncWebServerRequest* request, unsigned char* data, siz
                 }
             }
 
-            if (stdfs::is_directory(fpath)) {
+            std::error_code dir_ec;  // Falcon2: non-throwing, see handleRequest()
+            if (stdfs::is_directory(fpath, dir_ec)) {
                 log_error("Cannot PUT to a directory");
                 return request->send(403);
             }

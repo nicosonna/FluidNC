@@ -7,6 +7,16 @@
 #include "Machine/Macros.h"  // macro0Event
 #include "Channel.h"         // Channel::registerVirtualPin, Channel::MaxPinIndex
 
+#ifdef FALCON2_BOARD
+// Falcon2: the play key resumes a paused job as usual, and also starts the
+// newest file of the SD card when the machine is idle without Wi-Fi.  See
+// FalconPlay.cpp.
+extern const NoArgEvent falconPlayEvent;
+#    define CYCLE_START_PIN_EVENT falconPlayEvent
+#else
+#    define CYCLE_START_PIN_EVENT cycleStartEvent
+#endif
+
 Control::Control() {
     // All control inputs (Pin, input, default NO_PIN) must read non-active at boot -- this
     // guards against starting with a stuck switch, and raises an "active at startup" alarm
@@ -47,7 +57,7 @@ Control::Control() {
     // @pin_attributes input
     // Resumes a paused job, equivalent to sending the '~' real-time character. Paired with
     // feed_hold_pin, lets a job be paused/resumed with physical buttons.
-    _pins.push_back(new ControlPin(&cycleStartEvent, "cycle_start_pin", 'S'));
+    _pins.push_back(new ControlPin(&CYCLE_START_PIN_EVENT, "cycle_start_pin", 'S'));
 
     // @config macro0_pin
     // @default NO_PIN

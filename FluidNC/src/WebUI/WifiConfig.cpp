@@ -418,7 +418,13 @@ namespace WebUI {
             uint8_t     dot          = 0;
             bool        use_dhcp     = (_sta_mode && (_sta_mode->get() == DHCP_MODE));
             bool        logged_transient_disconnect = false;
+#ifdef FALCON2_BOARD
+            // Falcon2: give the network 30 seconds (15 tries, 2 s apart), then fall
+            // back to the machine's own access point.
+            size_t max_attempts = 15;
+#else
             size_t      max_attempts = use_dhcp ? 20 : 10;
+#endif
             for (size_t i = 0; i < max_attempts; ++i) {
                 msg.clear();
                 auto ret = WiFi.status();

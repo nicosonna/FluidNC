@@ -19,6 +19,22 @@
 #include "Driver/watchdog.h"  // feed_watchdog()
 #include "Config.h"
 
+#ifdef FALCON2_BOARD
+#    include <cstdarg>
+#    include <cstdio>
+static int falcon2_esp_log(const char* fmt, va_list ap) {
+    char buf[200];
+    int  n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    for (char* p = buf; *p; p++) {
+        if ((unsigned char)*p < 0x20) {  // line ends and colour escapes
+            *p = ' ';
+        }
+    }
+    log_info("ESP: " << buf);
+    return n;
+}
+#endif
+
 #define CHECK_EXECUTE_RESULT(err, str)                                                                                                     \
     do {                                                                                                                                   \
         if ((err) != ESP_OK) {                                                                                                             \
@@ -86,8 +102,18 @@ static void call_host_deinit(const sdmmc_host_t* host_config) {
 bool sd_init_slot(uint32_t freq_hz, pinnum_t cs_pin, pinnum_t cd_pin, pinnum_t wp_pin) {
     esp_err_t err;
 
+#ifdef FALCON2_BOARD
+    // Falcon2: the board has no serial console, so the SD driver's own error
+    // messages - which name the initialisation step that failed - are sent to
+    // FluidNC's log instead of being silenced.
+    esp_log_set_vprintf(falcon2_esp_log);
+    for (const char* tag : { "sdmmc_sd", "sdmmc_common", "sdmmc_init", "sdmmc_cmd", "sdmmc_req", "sdspi_host", "sdspi_transaction", "vfs_fat_sdmmc" }) {
+        esp_log_level_set(tag, ESP_LOG_ERROR);
+    }
+#else
     esp_log_level_set("sdmmc_sd", ESP_LOG_NONE);
     esp_log_level_set("sdmmc_common", ESP_LOG_NONE);
+#endif
 
     // Note: esp_vfs_fat_sdmmc/sdspi_mount is all-in-one convenience functions.
     // Please check its source code and implement error recovery when developing
@@ -132,7 +158,14 @@ std::error_code sd_mount(uint32_t max_files) {
     log_verbose("Mount_sd");
     esp_err_t err;
 
-    if ((err = host_config.set_card_clk(host_config.slot, host_config.max_freq_khz)) != ESP_OK) {
+    // Falcon2: identify the card at the 400 kHz the SD specification asks for.
+    // FluidNC set the full speed here, before the card is initialised, so the
+    // whole identification ran at 8 MHz or more.  A card fresh from power-on
+    // put up with it; the same card, still powered after a restart of the
+    // processor, never finished its initialisation (ACMD41 timed out) and stayed
+    // unusable until the machine was switched off.  sdmmc_card_init() raises
+    // the clock to max_freq_khz by itself once the card is identified.
+    if ((err = host_config.set_card_clk(host_config.slot, SDMMC_FREQ_PROBING)) != ESP_OK) {
         log_debug("spi_set_card_clk failed");
         return esp_error::make_error_code(err);
     }
@@ -208,6 +241,22 @@ void sd_unmount() {
 
     free(card);
     card = NULL;
+}
+
+// Falcon2: asks the mounted card for its status.  One short command, no CMD0.
+// cppcheck-suppress unusedFunction
+bool sd_alive() {
+    return card != NULL && sdmmc_get_status(card) == ESP_OK;
+}
+
+// Falcon2: see Driver/sdspi.h.
+// cppcheck-suppress unusedFunction
+bool sd_set_clock_khz(uint32_t khz) {
+    if (host_config.set_card_clk(host_config.slot, khz) != ESP_OK) {
+        return false;
+    }
+    host_config.max_freq_khz = khz;
+    return true;
 }
 
 // cppcheck-suppress unusedFunction

@@ -20,6 +20,13 @@ namespace {
     SemaphoreHandle_t sd_lifecycle_lock = xSemaphoreCreateMutex();
     uint32_t          sd_mount_users    = 0;
 
+    // Falcon2: the card stays mounted once it has been mounted.  Stock FluidNC
+    // unmounts it when the last user is done and so re-initialises it (CMD0)
+    // for every command and every WebUI directory listing, a few seconds
+    // apart.  On the Falcon2 board the card stops answering after a handful
+    // of those re-initialisations and only a power cycle brings it back.
+    bool sd_is_mounted = false;
+
     // Set when a mount attempt fails, so repeated requests do not each pay for
     // a full card initialisation.  Cleared on the next success.
     std::error_code       sd_failed_ec;
@@ -82,24 +89,34 @@ SDMountState::SDMountState() {
         // Remember a failure briefly and fail fast within that window.  The
         // window is short enough that swapping in a working card still gets
         // picked up on the next attempt.
-        if (sd_failed_ec && (millis() - sd_failed_at) < sd_retry_holdoff_ms) {
-            throw stdfs::filesystem_error { "Failed to mount SD card", sd_failed_ec };
+        // A card that was pulled out or swapped no longer answers: only then
+        // is it unmounted, so that the mount below starts from scratch.
+        if (sd_is_mounted && !sd_alive()) {
+            sd_unmount();
+            sd_is_mounted = false;
         }
-        auto ec = sd_mount();
-        if (ec) {
-            sd_failed_ec = ec;
-            sd_failed_at = millis();
-            throw stdfs::filesystem_error { "Failed to mount SD card", ec };
+        if (!sd_is_mounted) {
+            if (sd_failed_ec && (millis() - sd_failed_at) < sd_retry_holdoff_ms) {
+                throw stdfs::filesystem_error { "Failed to mount SD card", sd_failed_ec };
+            }
+            auto ec = sd_mount();
+            if (ec) {
+                sd_failed_ec = ec;
+                sd_failed_at = millis();
+                throw stdfs::filesystem_error { "Failed to mount SD card", ec };
+            }
+            sd_failed_ec  = {};
+            sd_is_mounted = true;
         }
-        sd_failed_ec = {};
     }
     ++sd_mount_users;
 }
 
 SDMountState::~SDMountState() {
     SDLock lock(sd_lifecycle_lock);
-    if (lock.locked() && sd_mount_users && --sd_mount_users == 0) {
-        sd_unmount();
+    // Falcon2: no unmount here, see sd_is_mounted.
+    if (lock.locked() && sd_mount_users) {
+        --sd_mount_users;
     }
 }
 

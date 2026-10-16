@@ -1,6 +1,8 @@
 // Copyright (c) 2021 -	Mitch Bradley
 // Use of this source code is governed by a GPLv3 license that can be found in the LICENSE file.
 
+#include <cerrno>
+#include <cstring>
 #include "FileStream.h"
 #include "Machine/MachineConfig.h"  // config->
 
@@ -96,6 +98,9 @@ void FileStream::setup(const char* mode) {
     _fd = fopen(_fpath.string().c_str(), mode);
 
     if (!_fd) {
+        // Falcon2: say why.  "Cannot create file" alone does not tell a full
+        // file table from a card that refuses to be written.
+        log_info("Cannot open " << _fpath.string() << " in mode " << mode << ": " << strerror(errno) << " (errno " << errno << ")");
         bool opening = strcmp(mode, "w");
         throw ErrorException(opening ? Error::FsFailedOpenFile : Error::FsFailedCreateFile);
     }
@@ -104,7 +109,13 @@ void FileStream::setup(const char* mode) {
     if (mode_writes(mode)) {
         setvbuf(_fd, nullptr, _IOFBF, WRITE_BUFFER_SIZE);
     }
-    _size = stdfs::file_size(_fpath);
+    // Falcon2: non-throwing.  This constructor runs in the web server task,
+    // where a std::filesystem_error is not caught and aborts the firmware.
+    std::error_code size_ec;
+    _size = stdfs::file_size(_fpath, size_ec);
+    if (size_ec) {
+        _size = 0;
+    }
 }
 
 // Delegates to the FluidPath constructor below so Channel's base-class name

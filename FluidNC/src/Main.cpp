@@ -29,6 +29,14 @@
 
 extern void make_user_commands();
 
+#ifdef FALCON2_BOARD
+extern "C" void falcon2_release_console_pins(void);
+extern "C" int  falcon2_sd_recover(void);
+extern "C" int  falcon2_sd_last_r1;
+extern "C" int  falcon2_sd_ready_ms;
+extern "C" int  falcon2_sd_acmd41_r1;
+#endif
+
 void setup() {
     platform_preinit();
 
@@ -41,6 +49,12 @@ void setup() {
         settings_init();
 
         Console.init();  // Setup main interaction channel
+#    ifdef FALCON2_BOARD
+        // Falcon2: the console pins drive the air pump on this board, and the
+        // pump whines for as long as start-up messages are sent into it.  Take
+        // the pins back before the first message is printed.
+        falcon2_release_console_pins();
+#    endif
 
         // Setup input polling loop after loading the configuration,
         // because the polling may depend on the config
@@ -84,6 +98,17 @@ void setup() {
 #    endif
 
 #    if MAX_N_SPI
+#        ifdef FALCON2_BOARD
+        // Falcon2: free a card left mid-transfer by the previous restart, before
+        // the SPI driver takes the pins.
+        {
+            int clocked = falcon2_sd_recover();
+            log_info("Falcon2: SD card recovery clocked " << clocked << " bytes, CMD0 answer " << falcon2_sd_last_r1);
+            if (falcon2_sd_last_r1 == 0x01 && falcon2_sd_ready_ms < 0) {
+                log_warn("Falcon2: the SD card answers but will not initialise; it needs a power cycle (switch the machine off, or pull the card out and push it back)");
+            }
+        }
+#        endif
         if (config->_spi) {
             config->_spi->init();
 #        if MAX_N_SDCARD

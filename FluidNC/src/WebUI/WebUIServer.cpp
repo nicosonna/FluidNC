@@ -1531,10 +1531,13 @@ namespace WebUI {
 
             // Check size
             if (filesize) {
-                size_t actual_size;
-                try {
-                    actual_size = stdfs::file_size(filepath);
-                } catch (const ErrorException& err) { actual_size = 0; }
+                // Falcon2: file_size() throws std::filesystem_error, which the
+                // ErrorException handler that used to be here did not catch.
+                std::error_code size_ec;
+                size_t          actual_size = stdfs::file_size(filepath, size_ec);
+                if (size_ec) {
+                    actual_size = 0;
+                }
 
                 if (filesize != actual_size) {
                     _upload_status = UploadStatus::FAILED;

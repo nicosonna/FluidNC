@@ -25,6 +25,16 @@
 #include <math.h>    // sqrt etc.
 #include <vector>
 
+// Falcon2: the air pump is driven by the falcon_pump module, which follows the
+// M7 / M8 / M9 modal state.  Stock FluidNC ignores those commands unless a
+// coolant pin is configured, and the pump has none (it needs two pins in
+// phase), so accept them regardless on this board.
+#ifdef FALCON2_BOARD
+#    define FALCON2_PUMP true
+#else
+#    define FALCON2_PUMP false
+#endif
+
 // Allow iteration over CoordIndex values
 CoordIndex& operator++(CoordIndex& i) {
     i = static_cast<CoordIndex>(static_cast<size_t>(i) + 1);
@@ -733,7 +743,7 @@ Error gc_execute_line(const char* input_line, Channel& channel) {
                                 if (mantissa && mantissa != 10) {
                                     return Error::GcodeUnsupportedCommand;  // M7 and M7.1 are supported
                                 }
-                                if (config->_coolant->hasMist()) {
+                                if (FALCON2_PUMP || config->_coolant->hasMist()) {
                                     gc_block.coolant = GCodeCoolant::M7;
                                 }
                                 break;
@@ -741,12 +751,12 @@ Error gc_execute_line(const char* input_line, Channel& channel) {
                                 if (mantissa && mantissa != 10) {
                                     return Error::GcodeUnsupportedCommand;  // M8 and M8.1 are supported
                                 }
-                                if (config->_coolant->hasFlood()) {
+                                if (FALCON2_PUMP || config->_coolant->hasFlood()) {
                                     gc_block.coolant = GCodeCoolant::M8;
                                 }
                                 break;
                             case 9:
-                                if (config->_coolant->hasFlood() || config->_coolant->hasMist()) {
+                                if (FALCON2_PUMP || config->_coolant->hasFlood() || config->_coolant->hasMist()) {
                                     gc_block.coolant = GCodeCoolant::M9;
                                 }
                                 break;
